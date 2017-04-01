@@ -1,11 +1,12 @@
 import numpy as np
 from osgeo import gdal, osr
 from matplotlib import pyplot as plt
+import os
 
 
-def read_array_from_tif(fin, band=1):
+def read_array_from_tiff(fin, band=1):
     tiff = gdal.Open(fin)
-    return np.array(tiff.GetRasterBand(band).ReadAsArray)
+    return np.array(tiff.GetRasterBand(band).ReadAsArray())
 
 
 def get_output_cmap(data, cmap, mincolor=None, maxcolor=None):
@@ -34,7 +35,7 @@ def get_output_cmap(data, cmap, mincolor=None, maxcolor=None):
     return color_table
 
 
-def write_array_to_tiff(data, fout, params, dtype=np.uint16, cmap=plt.cm.jet(), nodata=-1 * 2**8 + 1, epsg='4326', maxcolor=None, mincolor=None):
+def write_array_to_tiff(data, fout, params, dtype=np.uint16, cmap=plt.cm.jet, nodata=-1 * 2**8 + 1, epsg='4326', maxcolor=None, mincolor=None):
     if dtype == np.uint16:
         outtype = gdal.GDT_UInt16
     elif dtype == np.uint32:
@@ -72,7 +73,8 @@ def write_array_to_tiff(data, fout, params, dtype=np.uint16, cmap=plt.cm.jet(), 
 # OUTPUT: The pixel translation of the lat/lon pairings in the form [[x1,y1],[x2,y2]]
 # NOTE:   This method does not take into account pixel size and assumes a high enough
 #         image resolution for pixel size to be insignificant
-# credit goes to a now unknown stack overflow post, but as seen here https://github.com/madhusudhanaReddy/WeatherPrediction/blob/master/weatherprediction.py
+# credit goes to a now unknown stack overflow post, but as seen here
+# https://github.com/madhusudhanaReddy/WeatherPrediction/blob/master/weatherprediction.py
 def latLonToImagePixel(geotifAddr, latLonPairs):
     # Load the image dataset
     ds = gdal.Open(geotifAddr)
@@ -130,3 +132,18 @@ def pixelToLatLon(geotifAddr, pixelPairs):
         # Add the point to our return array
         latLonPairs.append([lat, lon])
     return latLonPairs
+
+
+def get_nonzero_coords(data):
+    return np.transpose(np.nonzero(np.choose(data > 0, (0, data))))
+
+
+def get_nonzero_latlng(tiff_address, band=1):
+    data = read_array_from_tiff(tiff_address, band)
+    coords = get_nonzero_coords(data)
+    return pixelToLatLon(tiff_address, coords)
+
+
+def get_all_coords_from_folder(folder):
+    files = os.listdir(folder)
+
