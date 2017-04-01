@@ -16,18 +16,18 @@ def get_output_cmap(data, cmap, mincolor=None, maxcolor=None):
     if maxval <= 1:
         return None
     ncolors = maxcolor + 1
-    colordiff = maxcolor
+    colordiff = maxcolor + 1
     if mincolor:
         colordiff -= mincolor
         ncolors -= mincolor
-    dcolor = 255.0 / (ncolors - 1)
+    dcolor = 255.0 / (ncolors)
     color_table = gdal.ColorTable()
     for i in xrange(colordiff):
         color = int(i * dcolor)
         if maxcolor and (i > maxcolor or (mincolor and i + mincolor > maxcolor)):
-            color = int(i * maxcolor)
+            color = int(maxcolor)
         color = tuple(map(lambda x: int(x * 255),
-                          list(cmap(color)).append(i + 1.0 / ncolors)))
+                          cmap(color)[1:] + ((1.0 * i) / ncolors,)))
         if mincolor:
             color_table.SetColorEntry(int(i + mincolor), color)
         else:
@@ -35,7 +35,12 @@ def get_output_cmap(data, cmap, mincolor=None, maxcolor=None):
     return color_table
 
 
-def write_array_to_tiff(data, fout, params, dtype=np.uint16, cmap=plt.cm.jet, nodata=-1 * 2**8 + 1, epsg='4326', maxcolor=None, mincolor=None):
+def normalize_array_for_uint8(data):
+    return data / data.max() * 255.0
+
+
+def write_array_to_tiff(data, fout, params, dtype=np.uint16, cmap=plt.cm.jet, nodata=-1 * 2**8 + 1, maxcolor=None, mincolor=None):
+    normalize = False
     if dtype == np.uint16:
         outtype = gdal.GDT_UInt16
     elif dtype == np.uint32:
@@ -44,9 +49,16 @@ def write_array_to_tiff(data, fout, params, dtype=np.uint16, cmap=plt.cm.jet, no
         outtype = gdal.GDT_Float32
     elif dtype == np.uint8:
         outtype = gdal.GDT_Byte
+        normalize = True
     else:
         raise Exception('unsupported datatype', dtype)
-    data = np.choose(data > 0, (0, data)).astype(dtype)
+    data = np.choose(data > 0, (0, data))
+    if normalize:
+        if maxcolor:
+            data = np.choose(data < maxcolor, (maxcolor, data))
+        data = normalize_array_for_uint8(data)
+        maxcolor = 255
+    data = data.astype(dtype)
     color_table = None
     if dtype in (np.uint8, np.uint16):
         color_table = get_output_cmap(data, cmap, mincolor, maxcolor)
@@ -134,6 +146,15 @@ def pixelToLatLon(geotifAddr, pixelPairs):
     return latLonPairs
 
 
+def get_params_for_tiff(tiff_address, data):
+    params = pixelToLatLon(
+        tiff_address, [[0, 0], [i - 1 for i in data.shape[::-1]]])
+    print params
+    params = [i[::-1] for i in params]
+    print params
+    return params[0] + params[1]
+
+
 def get_nonzero_coords(data):
     return np.transpose(np.nonzero(np.choose(data > 0, (0, data))))
 
@@ -146,4 +167,14 @@ def get_nonzero_latlng(tiff_address, band=1):
 
 def get_all_coords_from_folder(folder):
     files = os.listdir(folder)
+    pixels = []
+    for f in files:
+        pixels += get_nonzero_latlng(folder + f)
+    return pixels
 
+
+def save_data_derived_from_tiff(tiff_address, data, fout, dtype=np.uint16, cmap=plt.cm.jet, nodata=-1 * 2**8 + 1, maxcolor=None, mincolor=None):
+    params = get_params_for_tiff(tiff_address, data)
+    print params
+    write_array_to_tiff(data, fout, params, dtype, cmap,
+                        nodata, maxcolor, mincolor)
